@@ -5,6 +5,7 @@
   "description": "Flappy Soup: Peanut over hot soup with forks. Pure HTML/CSS/JS. No runtime deps.",
   "license": "MIT",
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "start": "node server.js"
   }
 }
