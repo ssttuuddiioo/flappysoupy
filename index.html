@@ -614,7 +614,7 @@
             peanut.vy = 0;
           }
           // Collisions: forks
-          const r = peanut.radius * 0.9; // small forgiveness
+          const r = peanut.radius * 0.85; // extra forgiveness near gap
           const px = peanut.x;
           const py = peanut.y;
           for (const f of forks) {
@@ -677,29 +677,41 @@
         }
 
         function getForkRects(f) {
-          // Return rectangles for collision: handle shafts + head blocks
+          // Return rectangles for collision: head blocks trimmed to never intrude into the gap,
+          // and shafts above/below them. This prevents invisible collisions inside the gap.
           const rects = [];
           const w = f.width;
           const headH = forkConfig.headHeight;
           const gapH = f.gap;
-          const topH = f.center - gapH * 0.5; // height from top to just before gap
-          const bottomTopY = f.center + gapH * 0.5; // y of bottom fork start
+          const topH = f.center - gapH * 0.5; // distance from top to the start of the gap
+          const bottomTopY = f.center + gapH * 0.5; // y where the bottom obstacle starts
           const soupTop = WORLD_HEIGHT - soup.height;
           const bottomH = soupTop - bottomTopY;
 
-          // Top shaft
-          if (topH > headH) {
-            rects.push({ x: f.x, y: 0, w, h: topH - headH });
-          }
-          // Top head
-          rects.push({ x: f.x, y: Math.max(0, topH - headH), w, h: headH - 4 });
+          // We trim a few pixels off heads near the gap to be generous
+          const headTrim = 6;
 
-          // Bottom head
-          rects.push({ x: f.x, y: bottomTopY, w, h: Math.min(headH - 4, bottomH) });
-          // Bottom shaft
-          const shaftBottomY = bottomTopY + headH;
-          if (bottomH - headH > 0) {
-            rects.push({ x: f.x, y: shaftBottomY, w, h: Math.max(0, bottomH - headH) });
+          // TOP HEAD: height cannot exceed topH
+          const topHeadH = Math.max(0, Math.min(headH - headTrim, topH));
+          if (topHeadH > 0) {
+            const topHeadY = topH - topHeadH; // stick to gap edge
+            rects.push({ x: f.x, y: topHeadY, w, h: topHeadH });
+          }
+          // TOP SHAFT: any remaining above the head
+          const topShaftH = Math.max(0, topH - topHeadH);
+          if (topShaftH > 0) {
+            rects.push({ x: f.x, y: 0, w, h: topShaftH });
+          }
+
+          // BOTTOM HEAD: height cannot exceed bottomH
+          const bottomHeadH = Math.max(0, Math.min(headH - headTrim, bottomH));
+          if (bottomHeadH > 0) {
+            rects.push({ x: f.x, y: bottomTopY, w, h: bottomHeadH });
+          }
+          // BOTTOM SHAFT: remainder below the head down to soup
+          const bottomShaftH = Math.max(0, bottomH - bottomHeadH);
+          if (bottomShaftH > 0) {
+            rects.push({ x: f.x, y: bottomTopY + bottomHeadH, w, h: bottomShaftH });
           }
           return rects;
         }
