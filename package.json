@@ -1,0 +1,11 @@
+{
+  "name": "flappysoup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Flappy Soup: Peanut over hot soup with forks. Pure HTML/CSS/JS. No runtime deps.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node server.js"
+  }
+}
+

@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Flappy Soup — Peanut vs. Lava Soup</title>
+    <meta name="description" content="A no-deps Flappy Bird style game: you're a peanut over hot soup, dodging fork barriers. Pure HTML/CSS/JS." />
+    <style>
+      :root {
+        --bg-top: #b1d9ff;
+        --bg-bottom: #78b0e8;
+        --ink: #0b294a;
+        --accent: #ffb703;
+        --soup: #ff7a59;
+        --soup-dark: #e14f3a;
+        --fork: #c9d6df;
+        --fork-edge: #9aa9b3;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        overscroll-behavior: none;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
+      }
+
+      #game-root {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      canvas#game {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+      }
+
+      .ui {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .hud {
+        position: absolute;
+        top: env(safe-area-inset-top, 16px);
+        left: env(safe-area-inset-left, 16px);
+        right: env(safe-area-inset-right, 16px);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        pointer-events: none;
+      }
+
+      .hud .score {
+        font-weight: 800;
+        font-size: clamp(20px, 4vw, 36px);
+        letter-spacing: 1px;
+        text-shadow: 0 2px 0 rgba(0,0,0,0.08), 0 0 10px rgba(255,255,255,0.35);
+        color: #08324f;
+      }
+
+      .hud .buttons {
+        display: flex;
+        gap: 8px;
+        pointer-events: auto;
+      }
+
+      .hud button {
+        appearance: none;
+        border: none;
+        background: rgba(255, 255, 255, 0.75);
+        color: var(--ink);
+        font-weight: 700;
+        padding: 10px 14px;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        cursor: pointer;
+        transition: transform 120ms ease, background 120ms ease;
+      }
+      .hud button:hover { transform: translateY(-1px); }
+      .hud button:active { transform: translateY(0); }
+
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        pointer-events: none;
+      }
+
+      .card {
+        pointer-events: auto;
+        background: rgba(255,255,255,0.85);
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        padding: clamp(16px, 4vw, 28px);
+        max-width: min(560px, 90vw);
+        text-align: center;
+        backdrop-filter: blur(6px);
+      }
+      .card h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 6vw, 44px);
+      }
+      .card p { margin: 6px 0; }
+      .card .kbd { 
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        background: rgba(0,0,0,0.08);
+        border-radius: 6px; padding: 2px 6px; font-weight: 700;
+      }
+      .card .play {
+        margin-top: 14px;
+        display: inline-flex; gap: 10px; align-items: center;
+      }
+      .card .play button {
+        padding: 12px 18px; font-size: 16px;
+        background: linear-gradient(180deg, #ffd46a, #ffb703);
+      }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="game-root">
+      <canvas id="game" aria-label="Flappy Soup Canvas" role="img"></canvas>
+    </div>
+
+    <div class="ui" aria-hidden="true">
+      <div class="hud">
+        <div class="score" id="score">0</div>
+        <div class="buttons">
+          <button id="btn-pause" title="Pause (P)">Pause</button>
+          <button id="btn-mute" title="Toggle Sound (M)">Sound On</button>
+        </div>
+      </div>
+
+      <div class="overlay" id="overlay">
+        <div class="card" id="menu-card">
+          <h1>Flappy Soup</h1>
+          <p>You are a brave peanut soaring over a vat of scorching soup. Dodge the forks. Don't touch the soup. Good luck!</p>
+          <p>
+            Controls: <span class="kbd">Space</span> / <span class="kbd">Click</span> / <span class="kbd">Tap</span> to flap.
+            <span class="kbd">P</span> to pause. <span class="kbd">M</span> to toggle sound.
+          </p>
+          <div class="play">
+            <button id="btn-play">Start</button>
+            <span id="best-label"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        "use strict";
+
+        // Canvas & sizing
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const scoreEl = document.getElementById('score');
+        const overlay = document.getElementById('overlay');
+        const menuCard = document.getElementById('menu-card');
+        const btnPlay = document.getElementById('btn-play');
+        const btnPause = document.getElementById('btn-pause');
+        const btnMute = document.getElementById('btn-mute');
+        const bestLabel = document.getElementById('best-label');
+
+        // Virtual world size (logical units)
+        const WORLD_WIDTH = 420;
+        const WORLD_HEIGHT = 740;
+        const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        let scale = 1; // CSS pixels to world units scale
+
+        function resize() {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          // Fit world entirely and maintain aspect ratio
+          scale = Math.min(w / WORLD_WIDTH, h / WORLD_HEIGHT);
+          const pixelW = Math.floor(w * DPR);
+          const pixelH = Math.floor(h * DPR);
+          canvas.width = pixelW;
+          canvas.height = pixelH;
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Utility random helpers
+        const randRange = (min, max) => min + Math.random() * (max - min);
+        const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+        // Audio (WebAudio minimal)
+        let audioCtx = null;
+        let masterGain = null;
+        let soundEnabled = true;
+        const ensureAudio = () => {
+          if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.35;
+            masterGain.connect(audioCtx.destination);
+          }
+        };
+        function playBeep(freq = 400, duration = 0.06, type = 'sine', vol = 1.0) {
+          if (!soundEnabled) return;
+          ensureAudio();
+          const t = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.35 * vol, t + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+          osc.connect(gain).connect(masterGain);
+          osc.start(t);
+          osc.stop(t + duration + 0.02);
+        }
+        function playChord(base = 440) {
+          if (!soundEnabled) return;
+          ensureAudio();
+          [1, 5/4, 3/2].forEach((r, i) => {
+            const t = audioCtx.currentTime + i * 0.01;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(base * r, t);
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.20);
+            osc.connect(gain).connect(masterGain);
+            osc.start(t);
+            osc.stop(t + 0.22);
+          });
+        }
+        function playThud() {
+          if (!soundEnabled) return;
+          ensureAudio();
+          const t = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(120, t);
+          osc.frequency.exponentialRampToValueAtTime(40, t + 0.18);
+          gain.gain.setValueAtTime(0.0001, t);
+          gain.gain.exponentialRampToValueAtTime(0.45, t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+          const lp = audioCtx.createBiquadFilter();
+          lp.type = 'lowpass';
+          lp.frequency.value = 320;
+          osc.connect(lp).connect(gain).connect(masterGain);
+          osc.start(t);
+          osc.stop(t + 0.26);
+        }
+
+        // SVG assets -> Data URIs -> Image objects
+        function svgToDataUrl(svg) {
+          const header = 'data:image/svg+xml;charset=UTF-8,';
+          return header + encodeURIComponent(svg)
+            .replace(/\(/g, '%28').replace(/\)/g, '%29');
+        }
+
+        // Peanut SVG (cute peanut with face)
+        const peanutSVG = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140">
+  <defs>
+    <linearGradient id="shell" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f5c77b"/>
+      <stop offset="100%" stop-color="#d49a50"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="30%" cy="20%" r="70%">
+      <stop offset="0%" stop-color="#fff8"/>
+      <stop offset="100%" stop-color="#fff0"/>
+    </radialGradient>
+  </defs>
+  <g>
+    <path d="M50 5
+      C75 5 87 24 87 43
+      C87 59 75 64 75 70
+      C75 76 87 83 87 98
+      C87 122 65 135 50 135
+      C35 135 13 122 13 98
+      C13 83 25 76 25 70
+      C25 64 13 59 13 43
+      C13 24 25 5 50 5Z"
+      fill="url(#shell)" stroke="#a3712c" stroke-width="3" stroke-linejoin="round"/>
+    <ellipse cx="40" cy="26" rx="20" ry="10" fill="url(#shine)"/>
+    <!-- Shell texture lines -->
+    <g stroke="#b8823a" stroke-width="2" stroke-linecap="round" opacity="0.7">
+      <path d="M23 42 C40 50, 60 50, 77 42" fill="none"/>
+      <path d="M23 54 C40 60, 60 60, 77 54" fill="none"/>
+      <path d="M23 66 C40 70, 60 70, 77 66" fill="none"/>
+      <path d="M23 102 C40 94, 60 94, 77 102" fill="none"/>
+      <path d="M23 114 C40 106, 60 106, 77 114" fill="none"/>
+      <path d="M23 126 C40 118, 60 118, 77 126" fill="none"/>
+    </g>
+    <!-- Face -->
+    <g>
+      <circle cx="40" cy="70" r="4.5" fill="#2d1a0a"/>
+      <circle cx="62" cy="70" r="4.5" fill="#2d1a0a"/>
+      <path d="M41 83 Q50 90 59 83" fill="none" stroke="#2d1a0a" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>`;
+
+        // Fork head SVG (metal prongs + neck)
+        const forkHeadSVG = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 120">
+  <defs>
+    <linearGradient id="metal" x1="0" x2="1">
+      <stop offset="0%" stop-color="#e9f0f5"/>
+      <stop offset="50%" stop-color="#c9d6df"/>
+      <stop offset="100%" stop-color="#a8b7c1"/>
+    </linearGradient>
+  </defs>
+  <!-- Fork head with three tines -->
+  <g stroke="#9aa9b3" stroke-width="3" stroke-linejoin="round">
+    <path d="M20 15 L20 55 C20 70 80 70 80 55 L80 15
+             M35 15 L35 55 M50 15 L50 55 M65 15 L65 55"
+          fill="url(#metal)"/>
+    <!-- Neck that connects to the handle/shaft -->
+    <rect x="38" y="55" width="24" height="50" rx="8" fill="url(#metal)" />
+  </g>
+</svg>`;
+
+        const peanutImg = new Image();
+        peanutImg.decoding = 'async';
+        peanutImg.src = svgToDataUrl(peanutSVG);
+
+        const forkHeadImg = new Image();
+        forkHeadImg.decoding = 'async';
+        forkHeadImg.src = svgToDataUrl(forkHeadSVG);
+
+        let assetsLoaded = false;
+        Promise.all([
+          new Promise(res => { peanutImg.onload = res; }),
+          new Promise(res => { forkHeadImg.onload = res; }),
+        ]).then(() => { assetsLoaded = true; drawMenu(); });
+
+        // Game state
+        const STATE = { MENU: 0, PLAYING: 1, PAUSED: 2, GAMEOVER: 3 };
+        let state = STATE.MENU;
+        let score = 0;
+        let best = Number(localStorage.getItem('flappySoupBest') || 0) || 0;
+        bestLabel.textContent = best > 0 ? `Best: ${best}` : '';
+
+        // World parameters
+        const soup = {
+          height: 150,
+          waveA1: 8,
+          waveA2: 4,
+          speed1: 1.8,
+          speed2: -1.2,
+        };
+        function soupSurfaceY(x, t) {
+          const base = WORLD_HEIGHT - soup.height;
+          const y = base + Math.sin((x * 0.02) + t * soup.speed1) * soup.waveA1 + Math.sin((x * 0.06) - t * soup.speed2) * soup.waveA2;
+          return y;
+        }
+
+        const peanut = {
+          x: 120,
+          y: WORLD_HEIGHT * 0.5,
+          radius: 22,
+          vy: 0,
+          gravity: 1700,
+          flapImpulse: -470,
+          rot: 0,
+        };
+
+        const forks = [];
+        const forkConfig = {
+          width: 88,
+          headHeight: 86,
+          gap: 180,
+          minGap: 130,
+          spawnInterval: 1.45,
+          speed: 180,
+          speedMax: 360,
+          difficultyRate: 0.015,
+          lastSpawnT: 0,
+        };
+
+        const particles = [];
+
+        let lastTime = 0;
+        let time = 0;
+
+        function resetGame() {
+          score = 0;
+          updateScore();
+          peanut.y = WORLD_HEIGHT * 0.48;
+          peanut.vy = 0;
+          peanut.rot = 0;
+          forks.length = 0;
+          particles.length = 0;
+          forkConfig.gap = 180;
+          forkConfig.speed = 180;
+          forkConfig.lastSpawnT = 0;
+        }
+
+        function updateScore() {
+          scoreEl.textContent = String(score);
+        }
+
+        function spawnForkPair() {
+          const playableTop = 40;
+          const playableBottom = WORLD_HEIGHT - soup.height - 40;
+          const gap = forkConfig.gap;
+          const center = randRange(playableTop + gap * 0.5, playableBottom - gap * 0.5);
+          const x = WORLD_WIDTH + 40;
+          const pair = {
+            x,
+            center,
+            gap,
+            width: forkConfig.width,
+            passed: false,
+          };
+          forks.push(pair);
+        }
+
+        function flap() {
+          if (state === STATE.MENU) startGame();
+          else if (state === STATE.PLAYING) {
+            peanut.vy = peanut.flapImpulse;
+            playBeep(620, 0.07, 'triangle', 0.9);
+          } else if (state === STATE.GAMEOVER) {
+            startGame();
+          }
+        }
+
+        function startGame() {
+          if (!assetsLoaded) return;
+          overlay.classList.add('hidden');
+          state = STATE.PLAYING;
+          resetGame();
+          ensureAudio();
+        }
+
+        function togglePause() {
+          if (state === STATE.PLAYING) {
+            state = STATE.PAUSED;
+            btnPause.textContent = 'Resume';
+          } else if (state === STATE.PAUSED) {
+            state = STATE.PLAYING;
+            btnPause.textContent = 'Pause';
+          }
+        }
+
+        function toggleSound() {
+          soundEnabled = !soundEnabled;
+          btnMute.textContent = soundEnabled ? 'Sound On' : 'Sound Off';
+          if (soundEnabled) playBeep(440, 0.06, 'sine', 0.6);
+        }
+
+        // Input
+        window.addEventListener('keydown', (e) => {
+          if (e.code === 'Space' || e.code === 'ArrowUp') {
+            e.preventDefault();
+            flap();
+          } else if (e.key === 'p' || e.key === 'P') {
+            togglePause();
+          } else if (e.key === 'm' || e.key === 'M') {
+            toggleSound();
+          }
+        }, { passive: false });
+        window.addEventListener('pointerdown', flap);
+        btnPlay.addEventListener('click', startGame);
+        btnPause.addEventListener('click', togglePause);
+        btnMute.addEventListener('click', toggleSound);
+
+        // Loop
+        function loop(ts) {
+          if (!lastTime) lastTime = ts;
+          const dt = Math.min(0.033, (ts - lastTime) / 1000);
+          lastTime = ts;
+          if (state === STATE.PLAYING) update(dt);
+          draw();
+          requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+
+        function update(dt) {
+          time += dt;
+          // Increase difficulty gradually
+          forkConfig.gap = Math.max(forkConfig.minGap, forkConfig.gap - forkConfig.difficultyRate * dt * 100);
+          forkConfig.speed = Math.min(forkConfig.speedMax, forkConfig.speed + forkConfig.difficultyRate * 60 * dt);
+
+          // Peanut physics
+          peanut.vy += peanut.gravity * dt;
+          peanut.y += peanut.vy * dt;
+          peanut.rot = clamp(peanut.vy / 600, -0.6, 1.0);
+
+          // Spawn forks
+          forkConfig.lastSpawnT += dt;
+          if (forkConfig.lastSpawnT >= forkConfig.spawnInterval) {
+            forkConfig.lastSpawnT = 0;
+            spawnForkPair();
+          }
+
+          // Move forks and scoring
+          for (let i = forks.length - 1; i >= 0; i--) {
+            const f = forks[i];
+            f.x -= forkConfig.speed * dt;
+            if (!f.passed && (f.x + f.width * 0.5) < peanut.x) {
+              f.passed = true;
+              score += 1;
+              updateScore();
+              playChord(660);
+            }
+            if (f.x + f.width < -50) forks.splice(i, 1);
+          }
+
+          // Particles update
+          for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.life -= dt;
+            if (p.life <= 0) { particles.splice(i, 1); continue; }
+            p.vx *= 0.99;
+            p.vy += 600 * dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+          }
+
+          // Collisions: soup
+          const surface = soupSurfaceY(peanut.x, time);
+          if (peanut.y + peanut.radius >= surface) {
+            die();
+            splash(peanut.x, surface);
+            return;
+          }
+          // Collisions: ceiling
+          if (peanut.y - peanut.radius <= 0) {
+            peanut.y = peanut.radius + 0.1;
+            peanut.vy = 0;
+          }
+          // Collisions: forks
+          const r = peanut.radius * 0.9; // small forgiveness
+          const px = peanut.x;
+          const py = peanut.y;
+          for (const f of forks) {
+            const topBottom = getForkRects(f);
+            for (const rect of topBottom) {
+              if (circleRectCollision(px, py, r, rect)) {
+                die();
+                return;
+              }
+            }
+          }
+        }
+
+        function die() {
+          if (state !== STATE.PLAYING) return;
+          state = STATE.GAMEOVER;
+          playThud();
+          if (score > best) {
+            best = score;
+            localStorage.setItem('flappySoupBest', String(best));
+          }
+          showGameOver();
+        }
+
+        function splash(x, y) {
+          for (let i = 0; i < 28; i++) {
+            particles.push({
+              x: x + randRange(-10, 10),
+              y: y + randRange(-6, 2),
+              vx: randRange(-150, 150),
+              vy: randRange(-320, -120),
+              r: randRange(2, 5),
+              hue: randRange(8, 18),
+              life: randRange(0.5, 0.9)
+            });
+          }
+        }
+
+        function getForkRects(f) {
+          // Return rectangles for collision: handle shafts + head blocks
+          const rects = [];
+          const w = f.width;
+          const headH = forkConfig.headHeight;
+          const gapH = f.gap;
+          const topH = f.center - gapH * 0.5; // height from top to just before gap
+          const bottomTopY = f.center + gapH * 0.5; // y of bottom fork start
+          const soupTop = WORLD_HEIGHT - soup.height;
+          const bottomH = soupTop - bottomTopY;
+
+          // Top shaft
+          if (topH > headH) {
+            rects.push({ x: f.x, y: 0, w, h: topH - headH });
+          }
+          // Top head
+          rects.push({ x: f.x, y: Math.max(0, topH - headH), w, h: headH - 4 });
+
+          // Bottom head
+          rects.push({ x: f.x, y: bottomTopY, w, h: Math.min(headH - 4, bottomH) });
+          // Bottom shaft
+          const shaftBottomY = bottomTopY + headH;
+          if (bottomH - headH > 0) {
+            rects.push({ x: f.x, y: shaftBottomY, w, h: Math.max(0, bottomH - headH) });
+          }
+          return rects;
+        }
+
+        function circleRectCollision(cx, cy, cr, rect) {
+          const closestX = clamp(cx, rect.x, rect.x + rect.w);
+          const closestY = clamp(cy, rect.y, rect.y + rect.h);
+          const dx = cx - closestX;
+          const dy = cy - closestY;
+          return dx * dx + dy * dy < cr * cr;
+        }
+
+        // Drawing
+        function draw() {
+          // Clear background sky gradient
+          const w = canvas.width / DPR;
+          const h = canvas.height / DPR;
+          ctx.save();
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+          const s = scale;
+          const viewW = WORLD_WIDTH * s;
+          const viewH = WORLD_HEIGHT * s;
+          const padX = (w - viewW) * 0.5;
+          const padY = (h - viewH) * 0.5;
+          ctx.translate(padX, padY);
+          ctx.scale(s, s);
+
+          // Sky background
+          const skyGrad = ctx.createLinearGradient(0, 0, 0, WORLD_HEIGHT);
+          skyGrad.addColorStop(0, getComputedStyle(document.documentElement).getPropertyValue('--bg-top').trim());
+          skyGrad.addColorStop(1, getComputedStyle(document.documentElement).getPropertyValue('--bg-bottom').trim());
+          ctx.fillStyle = skyGrad;
+          ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+          // Subtle distant specks/clouds
+          drawBackgroundDecor();
+
+          // Forks
+          for (const f of forks) {
+            drawForkPair(f);
+          }
+
+          // Peanut
+          drawPeanut();
+
+          // Soup
+          drawSoup();
+
+          // Particles (soup splashes)
+          drawParticles();
+
+          // Overlays
+          if (state === STATE.MENU) {
+            drawTitle();
+          } else if (state === STATE.GAMEOVER) {
+            // nothing here; HTML card shows
+          } else if (state === STATE.PAUSED) {
+            drawPaused();
+          }
+
+          ctx.restore();
+        }
+
+        function drawBackgroundDecor() {
+          ctx.save();
+          ctx.globalAlpha = 0.15;
+          ctx.fillStyle = '#ffffff';
+          const t = time * 10;
+          for (let i = 0; i < 12; i++) {
+            const x = (i * 80 + (t % 80)) % (WORLD_WIDTH + 100) - 50;
+            const y = 80 + (i % 3) * 60;
+            ctx.beginPath();
+            ctx.ellipse(x, y, 28, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        function drawPeanut() {
+          ctx.save();
+          ctx.translate(peanut.x, peanut.y);
+          ctx.rotate(peanut.rot);
+          const scalePeanut = 0.44; // size tuning
+          const imgW = peanutImg.width;
+          const imgH = peanutImg.height;
+          const drawW = imgW * scalePeanut;
+          const drawH = imgH * scalePeanut;
+          ctx.drawImage(peanutImg, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
+          ctx.restore();
+        }
+
+        function drawForkPair(f) {
+          const w = f.width;
+          const headH = forkConfig.headHeight;
+          const gap = f.gap;
+          const topH = f.center - gap * 0.5;
+          const bottomTopY = f.center + gap * 0.5;
+          const soupTop = WORLD_HEIGHT - soup.height;
+          const bottomH = soupTop - bottomTopY;
+
+          // Metallic shaft gradient
+          const grad = ctx.createLinearGradient(f.x, 0, f.x + w, 0);
+          grad.addColorStop(0, '#b9c6cf');
+          grad.addColorStop(0.5, '#e3edf4');
+          grad.addColorStop(1, '#a2b1bb');
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = '#9aa9b3';
+          ctx.lineWidth = 3;
+
+          // Top shaft
+          if (topH > headH) {
+            ctx.fillRect(f.x, 0, w, topH - headH);
+            ctx.strokeRect(f.x, 0, w, topH - headH);
+          }
+          // Top head (prongs downward)
+          const headW = w;
+          const drawHeadH = Math.min(headH, topH);
+          if (drawHeadH > 0) {
+            ctx.save();
+            ctx.translate(f.x + headW * 0.5, Math.max(0, topH - headH));
+            ctx.scale(headW / forkHeadImg.width, drawHeadH / forkHeadImg.height);
+            ctx.translate(-forkHeadImg.width * 0.5, 0);
+            // Flip vertically so prongs face downwards
+            ctx.translate(0, forkHeadImg.height);
+            ctx.scale(1, -1);
+            ctx.drawImage(forkHeadImg, 0, 0);
+            ctx.restore();
+          }
+
+          // Bottom head (prongs upward)
+          const bottomHeadH = Math.min(headH, bottomH);
+          if (bottomHeadH > 0) {
+            ctx.save();
+            ctx.translate(f.x + headW * 0.5, bottomTopY);
+            ctx.scale(headW / forkHeadImg.width, bottomHeadH / forkHeadImg.height);
+            ctx.translate(-forkHeadImg.width * 0.5, 0);
+            ctx.drawImage(forkHeadImg, 0, 0);
+            ctx.restore();
+          }
+          // Bottom shaft
+          const shaftY = bottomTopY + headH;
+          if (bottomH - headH > 0) {
+            ctx.fillRect(f.x, shaftY, w, bottomH - headH);
+            ctx.strokeRect(f.x, shaftY, w, bottomH - headH);
+          }
+
+          // Small highlight rim near gap
+          ctx.save();
+          ctx.globalAlpha = 0.3;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(f.x, topH - 3, w, 3);
+          ctx.fillRect(f.x, bottomTopY, w, 3);
+          ctx.restore();
+        }
+
+        function drawSoup() {
+          const t = time;
+          const topBase = WORLD_HEIGHT - soup.height;
+          // Soup fill
+          const g = ctx.createLinearGradient(0, topBase, 0, WORLD_HEIGHT);
+          g.addColorStop(0, '#ff835f');
+          g.addColorStop(0.5, '#ff7a59');
+          g.addColorStop(1, '#e14f3a');
+          ctx.fillStyle = g;
+
+          ctx.beginPath();
+          ctx.moveTo(0, WORLD_HEIGHT);
+          ctx.lineTo(0, soupSurfaceY(0, t));
+          const steps = 40;
+          for (let i = 1; i <= steps; i++) {
+            const x = (i / steps) * WORLD_WIDTH;
+            const y = soupSurfaceY(x, t);
+            ctx.lineTo(x, y);
+          }
+          ctx.lineTo(WORLD_WIDTH, WORLD_HEIGHT);
+          ctx.closePath();
+          ctx.fill();
+
+          // Glow
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = 0.14;
+          ctx.fillStyle = '#ffd2b0';
+          ctx.fillRect(0, topBase - 8, WORLD_WIDTH, 16);
+          ctx.restore();
+
+          // Bubbles
+          ctx.save();
+          ctx.globalAlpha = 0.28;
+          ctx.fillStyle = '#ffd8cc';
+          for (let i = 0; i < 24; i++) {
+            const rx = (i * 17.139 + (time * 30) % WORLD_WIDTH) % WORLD_WIDTH;
+            const ry = topBase + (i % 7) * 16 + (Math.sin(time * 2 + i) * 4);
+            ctx.beginPath();
+            ctx.arc(rx, ry, (i % 5) + 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        function drawParticles() {
+          ctx.save();
+          for (const p of particles) {
+            const a = clamp(p.life, 0, 1);
+            ctx.fillStyle = `hsla(${p.hue}, 90%, 55%, ${a})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+
+        function drawTitle() {
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.fillStyle = '#08324f';
+          ctx.font = 'bold 46px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Flappy Soup', WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.28);
+          ctx.font = '600 18px system-ui, sans-serif';
+          ctx.fillText('Tap / Click / Space to flap', WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.34);
+          ctx.restore();
+        }
+
+        function drawPaused() {
+          ctx.save();
+          ctx.fillStyle = 'rgba(0,0,0,0.25)';
+          ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 42px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Paused', WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+          ctx.font = '600 18px system-ui, sans-serif';
+          ctx.fillText('Press P to resume', WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5 + 28);
+          ctx.restore();
+        }
+
+        function showGameOver() {
+          overlay.classList.remove('hidden');
+          menuCard.innerHTML = `
+            <h1>Game Over</h1>
+            <p>Score: <strong>${score}</strong>${score > 0 ? '' : ''}</p>
+            <p>Best: <strong>${best}</strong></p>
+            <div class="play">
+              <button id="btn-restart">Restart</button>
+              <button id="btn-share">Share</button>
+            </div>
+            <p><span class="kbd">Space</span> / <span class="kbd">Tap</span> to restart</p>
+          `;
+          const btnRestart = document.getElementById('btn-restart');
+          const btnShare = document.getElementById('btn-share');
+          btnRestart.addEventListener('click', startGame);
+          btnShare.addEventListener('click', async () => {
+            const text = `I scored ${score} in Flappy Soup (best ${best}) 🥜🔥🍜`;
+            if (navigator.share) { try { await navigator.share({ text, title: 'Flappy Soup' }); } catch(e){} }
+            else { try { await navigator.clipboard.writeText(text); alert('Copied score to clipboard!'); } catch(e){} }
+          });
+        }
+
+        function drawMenu() {
+          overlay.classList.remove('hidden');
+          menuCard.innerHTML = `
+            <h1>Flappy Soup</h1>
+            <p>You are a brave peanut soaring over a vat of scorching soup. Dodge the forks. Don't touch the soup.</p>
+            <p>
+              Controls: <span class="kbd">Space</span> / <span class="kbd">Click</span> / <span class="kbd">Tap</span> to flap.
+              <span class="kbd">P</span> to pause. <span class="kbd">M</span> to toggle sound.
+            </p>
+            <div class="play">
+              <button id="btn-play-2">Start</button>
+              <span>${best > 0 ? `Best: ${best}` : ''}</span>
+            </div>
+          `;
+          const btnPlay2 = document.getElementById('btn-play-2');
+          btnPlay2.addEventListener('click', startGame);
+        }
+
+        // Initial card state if assets not yet loaded
+        if (!assetsLoaded) {
+          menuCard.querySelector('h1').textContent = 'Loading…';
+        }
+      })();
+    </script>
+  </body>
+  </html>
+
