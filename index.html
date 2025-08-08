@@ -130,6 +130,13 @@
       }
 
       .hidden { display: none !important; }
+
+      /* Character selector */
+      .skins { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 10px; margin-top: 10px; }
+      .skins button { background: #fff; border: 2px solid transparent; border-radius: 12px; padding: 10px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+      .skins button.selected { border-color: var(--accent); }
+      .skins img { width: 48px; height: auto; display: block; margin: 0 auto 6px; }
+      .skins .label { font-weight: 800; font-size: 12px; color: #08324f; }
     </style>
   </head>
   <body>
@@ -335,17 +342,72 @@
   </g>
 </svg>`;
 
-        const peanutImg = new Image();
-        peanutImg.decoding = 'async';
-        peanutImg.src = svgToDataUrl(peanutSVG);
+        // Multiple peanut skins
+        const peanutSkins = [
+          { key: 'classic', name: 'Classic', top: '#f5c77b', bottom: '#d49a50', face: '#2d1a0a' },
+          { key: 'salted', name: 'Salted', top: '#f6d48a', bottom: '#cda45f', face: '#2d1a0a' },
+          { key: 'choco', name: 'Chocolate', top: '#a06b3b', bottom: '#6e461f', face: '#23180e' },
+          { key: 'spicy', name: 'Spicy', top: '#f9a36b', bottom: '#d96a28', face: '#3a1a0a' },
+        ];
+
+        function generatePeanutSVG(skin) {
+          return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140">
+  <defs>
+    <linearGradient id="shell" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="${skin.top}"/>
+      <stop offset="100%" stop-color="${skin.bottom}"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="30%" cy="20%" r="70%">
+      <stop offset="0%" stop-color="#fff8"/>
+      <stop offset="100%" stop-color="#fff0"/>
+    </radialGradient>
+  </defs>
+  <g>
+    <path d="M50 5
+      C75 5 87 24 87 43
+      C87 59 75 64 75 70
+      C75 76 87 83 87 98
+      C87 122 65 135 50 135
+      C35 135 13 122 13 98
+      C13 83 25 76 25 70
+      C25 64 13 59 13 43
+      C13 24 25 5 50 5Z"
+      fill="url(#shell)" stroke="#a3712c" stroke-width="3" stroke-linejoin="round"/>
+    <ellipse cx="40" cy="26" rx="20" ry="10" fill="url(#shine)"/>
+    <g stroke="#b8823a" stroke-width="2" stroke-linecap="round" opacity="0.7">
+      <path d="M23 42 C40 50, 60 50, 77 42" fill="none"/>
+      <path d="M23 54 C40 60, 60 60, 77 54" fill="none"/>
+      <path d="M23 66 C40 70, 60 70, 77 66" fill="none"/>
+      <path d="M23 102 C40 94, 60 94, 77 102" fill="none"/>
+      <path d="M23 114 C40 106, 60 106, 77 114" fill="none"/>
+      <path d="M23 126 C40 118, 60 118, 77 126" fill="none"/>
+    </g>
+    <g>
+      <circle cx="40" cy="70" r="4.5" fill="${skin.face}"/>
+      <circle cx="62" cy="70" r="4.5" fill="${skin.face}"/>
+      <path d="M41 83 Q50 90 59 83" fill="none" stroke="${skin.face}" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>`;
+        }
+
+        const skinImages = new Map();
+        for (const s of peanutSkins) {
+          const img = new Image();
+          img.decoding = 'async';
+          img.src = svgToDataUrl(generatePeanutSVG(s));
+          skinImages.set(s.key, img);
+        }
 
         const forkHeadImg = new Image();
         forkHeadImg.decoding = 'async';
         forkHeadImg.src = svgToDataUrl(forkHeadSVG);
 
         let assetsLoaded = false;
+        const skinPromises = Array.from(skinImages.values()).map(img => new Promise(res => { img.onload = res; }));
         Promise.all([
-          new Promise(res => { peanutImg.onload = res; }),
+          ...skinPromises,
           new Promise(res => { forkHeadImg.onload = res; }),
         ]).then(() => { assetsLoaded = true; drawMenu(); });
 
@@ -375,8 +437,8 @@
           y: WORLD_HEIGHT * 0.5,
           radius: 22,
           vy: 0,
-          gravity: 1700,
-          flapImpulse: -470,
+          gravity: 1500,
+          flapImpulse: -500,
           rot: 0,
         };
 
@@ -384,12 +446,12 @@
         const forkConfig = {
           width: 88,
           headHeight: 86,
-          gap: 180,
-          minGap: 130,
-          spawnInterval: 1.45,
-          speed: 180,
-          speedMax: 360,
-          difficultyRate: 0.015,
+          gap: 220,
+          minGap: 170,
+          spawnInterval: 1.75,
+          speed: 140,
+          speedMax: 280,
+          difficultyRate: 0.010,
           lastSpawnT: 0,
         };
 
@@ -441,12 +503,17 @@
           }
         }
 
+        let selectedSkinKey = localStorage.getItem('flappySoupSkin') || 'classic';
+
         function startGame() {
           if (!assetsLoaded) return;
           overlay.classList.add('hidden');
           state = STATE.PLAYING;
           resetGame();
           ensureAudio();
+          // Auto-flap on start
+          peanut.vy = peanut.flapImpulse;
+          playBeep(620, 0.07, 'triangle', 0.9);
         }
 
         function togglePause() {
@@ -496,7 +563,7 @@
           time += dt;
           // Increase difficulty gradually
           forkConfig.gap = Math.max(forkConfig.minGap, forkConfig.gap - forkConfig.difficultyRate * dt * 100);
-          forkConfig.speed = Math.min(forkConfig.speedMax, forkConfig.speed + forkConfig.difficultyRate * 60 * dt);
+          forkConfig.speed = Math.min(forkConfig.speedMax, forkConfig.speed + forkConfig.difficultyRate * 50 * dt);
 
           // Peanut physics
           peanut.vy += peanut.gravity * dt;
@@ -693,11 +760,12 @@
           ctx.translate(peanut.x, peanut.y);
           ctx.rotate(peanut.rot);
           const scalePeanut = 0.44; // size tuning
-          const imgW = peanutImg.width;
-          const imgH = peanutImg.height;
+          const selImg = skinImages.get(selectedSkinKey) || skinImages.values().next().value;
+          const imgW = selImg.width;
+          const imgH = selImg.height;
           const drawW = imgW * scalePeanut;
           const drawH = imgH * scalePeanut;
-          ctx.drawImage(peanutImg, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
+          ctx.drawImage(selImg, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
           ctx.restore();
         }
 
@@ -871,10 +939,22 @@
 
         function drawMenu() {
           overlay.classList.remove('hidden');
+          const skinsHtml = peanutSkins.map(s => {
+            const img = skinImages.get(s.key);
+            const sel = s.key === selectedSkinKey ? 'selected' : '';
+            return `<button class="skin ${sel}" data-skin="${s.key}">
+              <img alt="${s.name}" src="${img ? img.src : ''}" />
+              <div class="label">${s.name}</div>
+            </button>`;
+          }).join('');
           menuCard.innerHTML = `
             <h1>Flappy Soup</h1>
             <p>You are a brave peanut soaring over a vat of scorching soup. Dodge the forks. Don't touch the soup.</p>
-            <p>
+            <div>
+              <p style="margin-top:10px;margin-bottom:8px;font-weight:700;">Choose your peanut:</p>
+              <div class="skins">${skinsHtml}</div>
+            </div>
+            <p style="margin-top:12px;">
               Controls: <span class="kbd">Space</span> / <span class="kbd">Click</span> / <span class="kbd">Tap</span> to flap.
               <span class="kbd">P</span> to pause. <span class="kbd">M</span> to toggle sound.
             </p>
@@ -885,6 +965,13 @@
           `;
           const btnPlay2 = document.getElementById('btn-play-2');
           btnPlay2.addEventListener('click', startGame);
+          const skinButtons = menuCard.querySelectorAll('[data-skin]');
+          skinButtons.forEach(el => el.addEventListener('click', () => {
+            selectedSkinKey = el.getAttribute('data-skin');
+            localStorage.setItem('flappySoupSkin', selectedSkinKey);
+            menuCard.querySelectorAll('[data-skin]').forEach(b => b.classList.remove('selected'));
+            el.classList.add('selected');
+          }));
         }
 
         // Initial card state if assets not yet loaded
