@@ -628,6 +628,29 @@
           }
         }
 
+        // Leaderboard utilities (local only)
+        let leaderboard = [];
+        try { leaderboard = JSON.parse(localStorage.getItem('flappySoupLeaderboard') || '[]') || []; } catch (_) { leaderboard = []; }
+        function saveLeaderboard() { localStorage.setItem('flappySoupLeaderboard', JSON.stringify(leaderboard)); }
+        function submitScore(name, score) {
+          const entry = { name: (name || 'Anonymous').slice(0, 24), score, ts: Date.now() };
+          leaderboard.push(entry);
+          leaderboard.sort((a, b) => (b.score - a.score) || (a.ts - b.ts));
+          leaderboard = leaderboard.slice(0, 10);
+          saveLeaderboard();
+        }
+        function leaderboardHTML() {
+          if (!leaderboard.length) return '<p>No scores yet. Be the first!</p>';
+          const rows = leaderboard.map((e, i) => `
+            <div style="display:flex;align-items:center;gap:8px;justify-content:space-between;padding:4px 0;">
+              <span style="opacity:.6;width:16px;text-align:right;">${i + 1}.</span>
+              <span style="flex:1;margin:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.name}</span>
+              <strong>${e.score}</strong>
+            </div>
+          `).join('');
+          return `<div style="text-align:left;background:rgba(255,255,255,.7);padding:10px;border-radius:10px;max-height:220px;overflow:auto;">${rows}</div>`;
+        }
+
         function die() {
           if (state !== STATE.PLAYING) return;
           state = STATE.GAMEOVER;
@@ -824,13 +847,7 @@
             ctx.strokeRect(f.x, shaftY, w, bottomH - headH);
           }
 
-          // Small highlight rim near gap
-          ctx.save();
-          ctx.globalAlpha = 0.3;
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(f.x, topH - 3, w, 3);
-          ctx.fillRect(f.x, bottomTopY, w, 3);
-          ctx.restore();
+          // Removed subtle highlight rim near gap to avoid visual floating bars
         }
 
         function drawSoup() {
@@ -917,24 +934,45 @@
 
         function showGameOver() {
           overlay.classList.remove('hidden');
+          const savedName = localStorage.getItem('flappySoupName') || '';
           menuCard.innerHTML = `
             <h1>Game Over</h1>
-            <p>Score: <strong>${score}</strong>${score > 0 ? '' : ''}</p>
+            <p style="font-size:18px;margin:6px 0;">Forks dodged: <strong>${score}</strong></p>
             <p>Best: <strong>${best}</strong></p>
-            <div class="play">
-              <button id="btn-restart">Restart</button>
-              <button id="btn-share">Share</button>
+            <div style="margin:12px 0;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+              <input id=\"lb-name\" type=\"text\" placeholder=\"Your name\" value=\"${savedName.replace(/"/g, '&quot;')}\" style=\"padding:10px 12px;border-radius:10px;border:1px solid #cbd5e1;width:70%;max-width:260px;\"/>
+              <button id=\"btn-save\">Save score</button>
             </div>
-            <p><span class="kbd">Space</span> / <span class="kbd">Tap</span> to restart</p>
+            <div style=\"margin:8px 0 12px 0;text-align:left;\">
+              <div style=\"font-weight:800;margin-bottom:6px;\">Leaderboard</div>
+              <div id=\"lb-list\">${leaderboardHTML()}</div>
+            </div>
+            <div class=\"play\">
+              <button id=\"btn-restart\">Restart</button>
+              <button id=\"btn-share\">Share</button>
+            </div>
+            <p><span class=\"kbd\">Space</span> / <span class=\"kbd\">Tap</span> to restart</p>
           `;
           const btnRestart = document.getElementById('btn-restart');
           const btnShare = document.getElementById('btn-share');
+          const btnSave = document.getElementById('btn-save');
+          const nameEl = document.getElementById('lb-name');
           btnRestart.addEventListener('click', startGame);
           btnShare.addEventListener('click', async () => {
             const text = `I scored ${score} in Flappy Soup (best ${best}) 🥜🔥🍜`;
             if (navigator.share) { try { await navigator.share({ text, title: 'Flappy Soup' }); } catch(e){} }
             else { try { await navigator.clipboard.writeText(text); alert('Copied score to clipboard!'); } catch(e){} }
           });
+          function doSave() {
+            const name = (nameEl.value || '').trim() || 'Anonymous';
+            localStorage.setItem('flappySoupName', name);
+            submitScore(name, score);
+            const list = document.getElementById('lb-list');
+            if (list) list.innerHTML = leaderboardHTML();
+            playBeep(520, 0.08, 'sine', 0.7);
+          }
+          btnSave.addEventListener('click', doSave);
+          nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); });
         }
 
         function drawMenu() {
